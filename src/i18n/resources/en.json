@@ -831,6 +831,36 @@
       "description": "Automatically skip silences sections in songs",
       "name": "Skip Silences"
     },
+    "smooth-crossfade": {
+      "description": "DJ-style transitions between songs: beat-matched blends, echo-outs and crossfades",
+      "menu": {
+        "bass-swap": "Bass swap during blends",
+        "blend-length": {
+          "auto": "Auto",
+          "beats": "{{beats}} beats",
+          "label": "Blend length"
+        },
+        "debug": "Debug logging",
+        "fade-duration": {
+          "label": "Crossfade duration",
+          "seconds": "{{seconds}} seconds"
+        },
+        "harmonic-mixing": "Harmonic mixing (shorter blends for clashing keys)",
+        "max-tempo-change": {
+          "label": "Max tempo change",
+          "off": "Off (no beat-matching)",
+          "percent": "±{{percent}}%"
+        },
+        "show-overlay": "Show transition overlay on the seekbar",
+        "skip-same-album": "Don't crossfade within an album",
+        "style": {
+          "auto": "Auto (beat-match, echo-out or crossfade)",
+          "crossfade": "Crossfade only",
+          "label": "Transition style"
+        }
+      },
+      "name": "Smooth Crossfade"
+    },
     "sponsorblock": {
       "description": "Automatically Skips non-music parts like intro/outro or parts of music videos where the song isn't playing",
       "name": "SponsorBlock"
