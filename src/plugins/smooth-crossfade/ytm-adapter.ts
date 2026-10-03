@@ -79,10 +79,10 @@ const EMPTY_QUEUE: QueueContext = {
  * lag behind it, so it's only a fallback.
  */
 export const getQueueContext = (playingId: string | null): QueueContext => {
-  const items = document
-    .querySelector<QueueElement>('#queue')
-    ?.queue.getItems();
+  const queue = document.querySelector<QueueElement>('#queue')?.queue;
+  const items = queue?.getItems();
   if (!items) return EMPTY_QUEUE;
+  const state = queue?.store.store.getState().queue;
 
   const entries = items.map(unwrap).filter((e) => e !== null);
   let index = entries.findIndex(
@@ -92,7 +92,19 @@ export const getQueueContext = (playingId: string | null): QueueContext => {
   if (index === -1) return EMPTY_QUEUE;
 
   const current = entries[index];
-  const next = entries[index + 1];
+  let next: QueueEntry | null = entries[index + 1] ?? null;
+  if (state?.repeatMode === 'ONE') {
+    // YT Music replays the same song: nothing to transition to.
+    next = null;
+  } else if (!next && state?.repeatMode === 'ALL') {
+    next = entries[0] ?? null;
+  } else if (!next && state?.autoplay) {
+    // At the end of the queue with autoplay on (e.g. a single song), YT Music
+    // appends its first "up next" pick when the song ends.
+    const [first] = (state.automixItems ?? []) as QueueItem[];
+    next = first ? unwrap(first) : null;
+  }
+
   // Playing the music-video version means YT Music is in video mode, so it
   // will play the next song's video version too (when there is one).
   const videoMode = playingId !== null && playingId === current.counterpartId;
