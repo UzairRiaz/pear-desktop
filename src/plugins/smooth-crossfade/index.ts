@@ -26,6 +26,8 @@ export type SmoothCrossfadePluginConfig = {
   blendBeats: 'auto' | 8 | 16 | 32;
   bassSwap: boolean;
   harmonicMixing: boolean;
+  /** Start blends on the incoming song's first steady downbeat. */
+  skipIntros: boolean;
   /** Crossfade length in seconds. */
   fadeDuration: number;
   /** No transition between consecutive tracks of the same album. */
@@ -66,6 +68,7 @@ export default createPlugin<
     blendBeats: 'auto',
     bassSwap: true,
     harmonicMixing: true,
+    skipIntros: true,
     fadeDuration: 6,
     skipSameAlbum: true,
     showOverlay: true,
@@ -132,6 +135,14 @@ export default createPlugin<
         checked: config.harmonicMixing,
         click(item) {
           setConfig({ harmonicMixing: item.checked });
+        },
+      },
+      {
+        label: t(`${menuKey}.skip-intros`),
+        type: 'checkbox',
+        checked: config.skipIntros,
+        click(item) {
+          setConfig({ skipIntros: item.checked });
         },
       },
       { type: 'separator' },
@@ -255,6 +266,7 @@ export default createPlugin<
               blendBeats: config.blendBeats,
               bassSwap: config.bassSwap,
               harmonicMixing: config.harmonicMixing,
+              skipIntros: config.skipIntros,
               fadeSeconds: config.fadeDuration,
               skipSameAlbum: config.skipSameAlbum,
             };

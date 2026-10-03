@@ -75,6 +75,40 @@ describe('beatmatchSchedule', () => {
   });
 });
 
+describe('keeping intros', () => {
+  it('fades a beat-matched incoming song in from its very start', () => {
+    const s = beatmatchSchedule({
+      entry: 100,
+      incomingDownbeat: 3,
+      beatSeconds: 0.5,
+      beats: 16,
+      keepIntro: true,
+    });
+    close(s.incomingStart, 97);
+    close(valueAt(s.automation.incomingGain, 96.98), 0);
+    assert.ok(valueAt(s.automation.incomingGain, 98) > 0.2, 'intro is audible');
+    close(valueAt(s.automation.incomingGain, 102), 1);
+  });
+
+  it('fades an echo-out incoming song in from its start', () => {
+    const s = echoSchedule({
+      cut: 50,
+      beatSeconds: 0.5,
+      barBeats: 4,
+      incomingDownbeat: 1,
+      keepIntro: true,
+    });
+    close(s.incomingStart, 51);
+    assert.ok(valueAt(s.automation.incomingGain, 51.5) > 0.2, 'intro is audible');
+    close(valueAt(s.automation.incomingGain, 52), 1);
+  });
+
+  it('leaves the default behaviour unchanged', () => {
+    const s = beatmatchSchedule({ entry: 100, incomingDownbeat: 3, beatSeconds: 0.5, beats: 16 });
+    close(valueAt(s.automation.incomingGain, 99.9), 0);
+  });
+});
+
 describe('echoSchedule', () => {
   it('cuts on the downbeat and brings the incoming in a bar later', () => {
     const s = echoSchedule({

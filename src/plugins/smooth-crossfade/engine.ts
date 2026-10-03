@@ -50,6 +50,12 @@ export type EngineSettings = PlannerSettings & {
   /** Keep gapless albums gapless: no transition between tracks of one album. */
   skipSameAlbum: boolean;
   bassSwap: boolean;
+  /**
+   * Start beat-matched blends and echo-outs on the incoming song's first
+   * steady downbeat, skipping an intro without a beat. Off: the intro is
+   * heard (long beatless intros get a crossfade instead).
+   */
+  skipIntros: boolean;
 };
 
 export const DEFAULT_ENGINE_SETTINGS: EngineSettings = {
@@ -58,6 +64,7 @@ export const DEFAULT_ENGINE_SETTINGS: EngineSettings = {
   fadeSeconds: 6,
   skipSameAlbum: true,
   bassSwap: true,
+  skipIntros: true,
 };
 
 export type EngineOptions = {
@@ -171,6 +178,8 @@ const OUTGOING_ANALYSIS_SECONDS = 45;
 const MIN_LISTEN_SECONDS = 20;
 /** Downbeats are only trusted above this confidence. */
 const MIN_DOWNBEAT_CONFIDENCE = 0.3;
+/** With intros kept, a beatless intro longer than this means a crossfade. */
+const MAX_KEPT_INTRO_SECONDS = 4;
 /** Leading silence in the incoming song is skipped up to this long. */
 const MAX_INTRO_SKIP_SECONDS = 5;
 
@@ -429,6 +438,25 @@ export class CrossfadeEngine {
       settings.style === 'crossfade'
         ? null
         : planTransition(outgoing, prepared.analysis.analysis, settings);
+    // Keeping intros: a long stretch before the incoming song's first steady
+    // downbeat can't be beat-matched without skipping it, so crossfade.
+    if (!settings.skipIntros && plan && plan.style !== 'crossfade') {
+      const incoming = prepared.analysis.analysis;
+      const entryBeat = firstEntryBeat(incoming);
+      const intro =
+        entryBeat === null ? Infinity : entryBeat - incoming.loudness.firstSound;
+      if (intro > MAX_KEPT_INTRO_SECONDS) {
+        plan = {
+          ...plan,
+          style: 'crossfade',
+          reason:
+            entryBeat === null
+              ? 'keeping the intro (no steady downbeat found)'
+              : `keeping the ${intro.toFixed(0)}s intro`,
+        };
+      }
+    }
+
     const fade = effectiveFadeSeconds(settings.fadeSeconds, duration);
     const end = duration - END_MARGIN_SECONDS;
 
@@ -526,6 +554,7 @@ export class CrossfadeEngine {
       beatSeconds: period,
       barBeats: outgoing.downbeats?.meter ?? 4,
       incomingDownbeat: entryBeat,
+      keepIntro: !this.settings.skipIntros,
     });
     return this.perform(run, schedule);
   }
@@ -623,6 +652,7 @@ export class CrossfadeEngine {
       incomingDownbeat: entryBeat,
       beatSeconds: inBeat,
       beats: blendBeats,
+      keepIntro: !this.settings.skipIntros,
     });
     const performing = this.perform(run, schedule);
     this.holdSync(run, schedule, rate, outBeat).catch((error) =>
@@ -1081,6 +1111,7 @@ export class CrossfadeEngine {
       return beatmatchSchedule({
         entry: start + RAMP_SECONDS + measure + ENTRY_LEAD_SECONDS,
         incomingDownbeat: entryBeat,
+        keepIntro: !this.settings.skipIntros,
         beatSeconds: incoming.grid.period,
         beats: plan.beats,
       });
@@ -1091,6 +1122,7 @@ export class CrossfadeEngine {
         beatSeconds: outgoing.grid.period,
         barBeats: outgoing.downbeats?.meter ?? 4,
         incomingDownbeat: entryBeat,
+        keepIntro: !this.settings.skipIntros,
       });
     }
     const { firstSound } = incoming.loudness;

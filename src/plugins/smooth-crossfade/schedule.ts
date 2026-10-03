@@ -95,24 +95,29 @@ export const beatmatchSchedule = ({
   incomingDownbeat,
   beatSeconds,
   beats,
+  keepIntro = false,
 }: {
   entry: number;
   incomingDownbeat: number;
   beatSeconds: number;
   beats: number;
+  /** Fade the incoming song in from its start instead of from the entry. */
+  keepIntro?: boolean;
 }): Schedule => {
   const length = beats * beatSeconds;
   const middle = entry + (length / 2);
   const end = entry + length;
+  const incomingStart = entry - incomingDownbeat;
+  const fadeFrom = keepIntro ? Math.min(incomingStart, entry) : entry;
   return {
     style: 'beatmatch',
-    incomingStart: entry - incomingDownbeat,
+    incomingStart,
     incomingOffset: 0,
     end,
     automation: {
       incomingGain: [
-        { time: entry - 0.01, value: 0 },
-        ...curve(entry, entry + (length / 4), fadeIn),
+        { time: fadeFrom - 0.01, value: 0 },
+        ...curve(fadeFrom, entry + (length / 4), fadeIn),
       ],
       incomingBass: [
         { time: middle, value: BASS_CUT_DB },
@@ -138,16 +143,21 @@ export const echoSchedule = ({
   beatSeconds,
   barBeats,
   incomingDownbeat,
+  keepIntro = false,
 }: {
   cut: number;
   beatSeconds: number;
   barBeats: number;
   incomingDownbeat: number;
+  /** Fade the incoming song in from its start instead of cutting in. */
+  keepIntro?: boolean;
 }): Schedule => {
   const entry = cut + (barBeats * beatSeconds);
+  const incomingStart = entry - incomingDownbeat;
+  const fadeFrom = keepIntro && incomingStart < entry - 0.05 ? incomingStart : null;
   return {
     style: 'echo',
-    incomingStart: entry - incomingDownbeat,
+    incomingStart,
     incomingOffset: 0,
     end: entry,
     echoDelay: beatSeconds * 0.75,
@@ -162,10 +172,13 @@ export const echoSchedule = ({
         { time: cut, value: 1 },
         { time: cut + beatSeconds, value: 0 },
       ],
-      incomingGain: [
-        { time: entry - 0.02, value: 0 },
-        { time: entry + 0.01, value: 1 },
-      ],
+      incomingGain:
+        fadeFrom === null
+          ? [
+              { time: entry - 0.02, value: 0 },
+              { time: entry + 0.01, value: 1 },
+            ]
+          : [{ time: fadeFrom - 0.01, value: 0 }, ...curve(fadeFrom, entry, fadeIn)],
       mainBass: hold(cut, 0),
       incomingBass: hold(cut, 0),
     },

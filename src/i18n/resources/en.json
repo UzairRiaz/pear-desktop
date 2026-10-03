@@ -852,6 +852,7 @@
           "percent": "±{{percent}}%"
         },
         "show-overlay": "Show transition overlay on the seekbar",
+        "skip-intros": "Skip intros to start blends on the beat",
         "skip-same-album": "Don't crossfade within an album",
         "style": {
           "auto": "Auto (beat-match, echo-out or crossfade)",
