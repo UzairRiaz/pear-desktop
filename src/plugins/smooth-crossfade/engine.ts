@@ -56,6 +56,8 @@ export type EngineSettings = PlannerSettings & {
    * heard (long beatless intros get a crossfade instead).
    */
   skipIntros: boolean;
+  /** Start beat-matched blends and echo-outs on an outgoing phrase boundary. */
+  phraseMixing: boolean;
 };
 
 export const DEFAULT_ENGINE_SETTINGS: EngineSettings = {
@@ -65,6 +67,7 @@ export const DEFAULT_ENGINE_SETTINGS: EngineSettings = {
   skipSameAlbum: true,
   bassSwap: true,
   skipIntros: true,
+  phraseMixing: true,
 };
 
 export type EngineOptions = {
@@ -94,7 +97,11 @@ export type OverlaySnapshot = {
     beats: number[];
     /** Beats extrapolated from the grid through the transition. */
     predicted: number[];
+    /** Phrase starts (song time), when the phrase grid is trusted. */
+    phrases: number[];
   } | null;
+  /** The outgoing phrase boundary the transition aims for (song time). */
+  phraseTarget: number | null;
   incoming:
     | (BufferAnalysis & {
         /** Incoming buffer time playing at song time `s` (NaN before it starts). */
@@ -173,7 +180,9 @@ const MAX_HANDOFF_SEEKS = 3;
 const HANDOFF_TIMEOUT_MS = 8000;
 const POLL_SECONDS = 0.05;
 /** How much of the outgoing song's recent playback is analysed. */
-const OUTGOING_ANALYSIS_SECONDS = 45;
+const OUTGOING_ANALYSIS_SECONDS = 120;
+/** Phrase grids are only trusted above this confidence. */
+const MIN_PHRASE_CONFIDENCE = 0.3;
 /** Listen to the outgoing song this long before judging its beat. */
 const MIN_LISTEN_SECONDS = 20;
 /** Downbeats are only trusted above this confidence. */
@@ -237,6 +246,8 @@ export class CrossfadeEngine {
   private plan: TransitionPlan | null = null;
   /** Song time at which the planned transition starts. */
   private planStart: number | null = null;
+  /** Song time of the outgoing phrase boundary the transition aims for. */
+  private phraseTarget: number | null = null;
   private running: Running | null = null;
   private ownSeek = false;
   private ownRateChange = false;
@@ -485,6 +496,46 @@ export class CrossfadeEngine {
       start = end - (outgoing.grid.period * 8);
     }
 
+    // Phrase mixing: move the start so the blend (or echo cut) begins on an
+    // outgoing phrase boundary, the latest one that still fits.
+    this.phraseTarget = null;
+    const phraseGrid = outgoing ? this.outgoingPhraseGrid(outgoing) : null;
+    if (
+      settings.phraseMixing &&
+      phraseGrid &&
+      start !== null &&
+      (plan?.style === 'beatmatch' || plan?.style === 'echo')
+    ) {
+      const inBeat = prepared.analysis.analysis.grid?.period ?? 0.5;
+      // Time needed before the boundary, and song needed after it.
+      const before =
+        plan.style === 'beatmatch'
+          ? RAMP_SECONDS +
+            Math.max(MEASURE_SECONDS, MEASURE_BEATS * inBeat) +
+            ENTRY_LEAD_SECONDS +
+            1
+          : ENTRY_LEAD_SECONDS + 1.5;
+      const after =
+        plan.style === 'beatmatch'
+          ? plan.beats * inBeat * plan.outgoingRate
+          : (outgoing?.downbeats?.meter ?? 4) * (outgoing?.grid?.period ?? 0.5);
+      const { anchor, length } = phraseGrid;
+      for (let k = Math.floor((end - anchor) / length); k > -64; k--) {
+        const boundary = anchor + (k * length);
+        if (boundary + after > end) continue;
+        if (boundary - before < position + 1) break;
+        this.phraseTarget = boundary;
+        start = boundary - before;
+        plan = { ...plan, reason: `${plan.reason}, on a phrase` };
+        break;
+      }
+      this.debug(
+        this.phraseTarget === null
+          ? 'phrase: no boundary fits, entering on the next downbeat'
+          : `phrase: ${phraseGrid.beatsPerPhrase}-beat phrases (confidence ${phraseGrid.confidence.toFixed(2)}), entering at song ${this.phraseTarget.toFixed(2)}s`,
+      );
+    }
+
     if (!plan || plan.style === 'crossfade') {
       plan ??= {
         style: 'crossfade',
@@ -544,11 +595,19 @@ export class CrossfadeEngine {
     if (!outgoing?.grid || entryBeat === null) return this.runCrossfade(run);
 
     const period = outgoing.grid.period;
-    const cut = this.nextOutgoingBeat(
+    let cut = this.nextOutgoingBeat(
       outgoing,
       this.ctx.currentTime + ENTRY_LEAD_SECONDS,
       true,
     );
+    // Aiming for a phrase boundary: cut on the grid beat nearest to it.
+    if (this.phraseTarget !== null) {
+      const target = this.live.fromMediaTime(this.phraseTarget);
+      const onGrid =
+        outgoing.grid.origin +
+        (Math.round((target - outgoing.grid.origin) / period) * period);
+      if (onGrid >= this.ctx.currentTime + ENTRY_LEAD_SECONDS) cut = onGrid;
+    }
     const schedule = echoSchedule({
       cut,
       beatSeconds: period,
@@ -729,6 +788,27 @@ export class CrossfadeEngine {
     }
   }
 
+  /**
+   * The outgoing song's phrase grid in song time: phrase starts sit at
+   * `anchor + k * length`. Extends past the analysed audio, since the
+   * boundary we want is usually still ahead.
+   */
+  private outgoingPhraseGrid(analysis: TrackAnalysis) {
+    const { phrases, grid } = analysis;
+    if (!phrases || !grid || phrases.confidence < MIN_PHRASE_CONFIDENCE) {
+      return null;
+    }
+    const last = phrases.starts.at(-1);
+    if (last === undefined || analysis.beats[last] === undefined) return null;
+    return {
+      anchor: this.live.toMediaTime(analysis.beats[last]),
+      // Analysed at playback rate 1, so its beat period is in song time.
+      length: phrases.beatsPerPhrase * grid.period,
+      beatsPerPhrase: phrases.beatsPerPhrase,
+      confidence: phrases.confidence,
+    };
+  }
+
   /** First outgoing beat after `after` from a live analysis (optionally a downbeat). */
   private nextOutgoingBeat(
     analysis: TrackAnalysis,
@@ -763,6 +843,18 @@ export class CrossfadeEngine {
     const earliest = this.ctx.currentTime + ENTRY_LEAD_SECONDS;
     let k = Math.ceil((earliest - origin) / beat);
     const { downbeats, grid } = pre;
+
+    // Aiming for a phrase boundary: the beat that lands on it in song time.
+    if (this.phraseTarget !== null && grid) {
+      for (let i = k; i < k + 64; i++) {
+        const t = origin + (i * beat);
+        const s = this.live.toMediaTime(t);
+        if (Math.abs(s - this.phraseTarget) < grid.period / 2) return t;
+        if (s > this.phraseTarget) break;
+      }
+      log('beat-match: phrase boundary missed, entering on the next downbeat');
+    }
+
     if (!downbeats || downbeats.confidence < MIN_DOWNBEAT_CONFIDENCE || !grid) {
       return origin + (k * beat);
     }
@@ -1024,6 +1116,7 @@ export class CrossfadeEngine {
       // A seek invalidates the plan's timing; plan again from the new spot.
       this.plan = null;
       this.planStart = null;
+      this.phraseTarget = null;
     }
   }
 
@@ -1050,6 +1143,7 @@ export class CrossfadeEngine {
     this.stopTransition(true);
     this.plan = null;
     this.planStart = null;
+    this.phraseTarget = null;
     this.state = 'idle';
     this.ownSeek = false;
   }
@@ -1085,6 +1179,7 @@ export class CrossfadeEngine {
     this.loadingId = null;
     this.plan = null;
     this.planStart = null;
+    this.phraseTarget = null;
   }
 
   // --- overlay --------------------------------------------------------------
@@ -1171,7 +1266,7 @@ export class CrossfadeEngine {
     // Beat analysis is the costly part; refresh it once a second.
     const wall = performance.now();
     if (!this.overlayCache || wall - this.overlayCache.at > 1000) {
-      const analysis = this.live.analyzeRecent(30);
+      const analysis = this.live.analyzeRecent(OUTGOING_ANALYSIS_SECONDS);
       let outgoing: OverlaySnapshot['outgoing'] = null;
       if (analysis) {
         const toSong = (t: number) => this.live.toMediaTime(t);
@@ -1189,7 +1284,20 @@ export class CrossfadeEngine {
             predicted.push(t);
           }
         }
-        outgoing = { analysis, beats: analysis.beats.map(toSong), predicted };
+        const phrases: number[] = [];
+        const phraseGrid = this.outgoingPhraseGrid(analysis);
+        if (phraseGrid && duration) {
+          const { anchor, length } = phraseGrid;
+          for (let k = Math.ceil(-anchor / length); anchor + (k * length) <= duration; k++) {
+            phrases.push(anchor + (k * length));
+          }
+        }
+        outgoing = {
+          analysis,
+          beats: analysis.beats.map(toSong),
+          predicted,
+          phrases,
+        };
       }
       this.overlayCache = { at: wall, outgoing };
     }
@@ -1226,6 +1334,7 @@ export class CrossfadeEngine {
         };
       },
       plan: this.plan,
+      phraseTarget: this.phraseTarget,
     };
   }
 }

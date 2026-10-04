@@ -308,6 +308,34 @@ export class SeekbarOverlay {
       });
     }
 
+    // Phrase starts: taller white ticks (outgoing at the top, incoming at the
+    // bottom), and a dotted line at the boundary the transition aims for.
+    for (const t of outgoing?.phrases ?? []) {
+      tick(t, true, 20, 'rgba(255, 255, 255, 0.85)');
+    }
+    const incomingPhrases = incoming?.analysis.phrases;
+    if (incoming && incomingPhrases && incomingPhrases.confidence >= 0.3) {
+      for (const index of incomingPhrases.starts) {
+        const beat = incoming.analysis.beats[index];
+        if (beat !== undefined) {
+          tick(incoming.songAt(beat), false, 20, 'rgba(255, 255, 255, 0.85)');
+        }
+      }
+    }
+    if (
+      snapshot.phraseTarget !== null &&
+      snapshot.phraseTarget >= from &&
+      snapshot.phraseTarget <= to
+    ) {
+      g.strokeStyle = 'rgba(255, 255, 255, 0.7)';
+      g.setLineDash([2, 3]);
+      g.beginPath();
+      g.moveTo(Math.round(x(snapshot.phraseTarget)) + 0.5, top);
+      g.lineTo(Math.round(x(snapshot.phraseTarget)) + 0.5, top + height);
+      g.stroke();
+      g.setLineDash([]);
+    }
+
     // Gain curves (solid) and bass shelves (dashed) across the transition.
     const curve = (
       pick: (l: ReturnType<OverlaySnapshot['levelsAt']>) => number,

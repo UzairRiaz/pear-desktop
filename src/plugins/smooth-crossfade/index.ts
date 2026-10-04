@@ -28,6 +28,8 @@ export type SmoothCrossfadePluginConfig = {
   harmonicMixing: boolean;
   /** Start blends on the incoming song's first steady downbeat. */
   skipIntros: boolean;
+  /** Start blends on an outgoing phrase (8-bar section) boundary. */
+  phraseMixing: boolean;
   /** Crossfade length in seconds. */
   fadeDuration: number;
   /** No transition between consecutive tracks of the same album. */
@@ -69,6 +71,7 @@ export default createPlugin<
     bassSwap: true,
     harmonicMixing: true,
     skipIntros: true,
+    phraseMixing: true,
     fadeDuration: 6,
     skipSameAlbum: true,
     showOverlay: true,
@@ -135,6 +138,14 @@ export default createPlugin<
         checked: config.harmonicMixing,
         click(item) {
           setConfig({ harmonicMixing: item.checked });
+        },
+      },
+      {
+        label: t(`${menuKey}.phrase-mixing`),
+        type: 'checkbox',
+        checked: config.phraseMixing,
+        click(item) {
+          setConfig({ phraseMixing: item.checked });
         },
       },
       {
@@ -267,6 +278,7 @@ export default createPlugin<
               bassSwap: config.bassSwap,
               harmonicMixing: config.harmonicMixing,
               skipIntros: config.skipIntros,
+              phraseMixing: config.phraseMixing,
               fadeSeconds: config.fadeDuration,
               skipSameAlbum: config.skipSameAlbum,
             };

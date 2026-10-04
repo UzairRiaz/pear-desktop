@@ -851,6 +851,7 @@
           "off": "Off (no beat-matching)",
           "percent": "±{{percent}}%"
         },
+        "phrase-mixing": "Start blends on phrase boundaries",
         "show-overlay": "Show transition overlay on the seekbar",
         "skip-intros": "Skip intros to start blends on the beat",
         "skip-same-album": "Don't crossfade within an album",

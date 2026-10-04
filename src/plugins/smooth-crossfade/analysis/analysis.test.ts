@@ -275,6 +275,54 @@ describe('downbeats', () => {
   });
 });
 
+describe('phrases', () => {
+  /**
+   * 120 BPM, 4/4, a 2-bar pickup, then sections that change every 8 bars:
+   * A (kick, hats, low bass) and B (adds snare, chords, different bass).
+   */
+  const sectionTrack = (withSections: boolean) => {
+    const bpm = 120;
+    const period = 60 / bpm;
+    const beatsTotal = 8 + (32 * 5);
+    const audio = new Float32Array(Math.ceil(SR * ((beatsTotal + 2) * period)));
+    const random = makeRandom(11);
+    for (let k = 0; k < beatsTotal; k++) {
+      const t = k * period;
+      const section = withSections && k >= 8 ? Math.floor((k - 8) / 32) % 2 : 0;
+      if (k % 4 === 0 || k % 4 === 2) addKick(audio, t);
+      addNoise(audio, t, 0.04, 0.2, random);
+      if (k % 4 === 0) {
+        const bar = Math.floor(k / 4);
+        const notes = section === 0 ? [55, 65.41] : [82.41, 98];
+        addTone(audio, t, t + (4 * period), notes[bar % 2], 0.15);
+        if (section === 1) {
+          for (const hz of [261.6, 329.6, 392]) addTone(audio, t, t + (4 * period), hz, 0.05);
+        }
+      }
+      if (section === 1 && k % 2 === 1) addNoise(audio, t, 0.15, 0.5, random);
+    }
+    return audio;
+  };
+
+  it('finds 8-bar phrase starts after a pickup', () => {
+    const result = analyse(sectionTrack(true));
+    assert.ok(result.phrases, 'no phrases');
+    assert.equal(result.phrases.beatsPerPhrase, 32);
+    assert.ok(result.phrases.confidence > 0.5, `confidence ${result.phrases.confidence.toFixed(2)}`);
+    // Phrase starts fall on beat 8, 40, 72 … (the first detected beat may be
+    // missing, so compare times, not indices).
+    for (const index of result.phrases.starts.slice(1)) {
+      const beat = Math.round(result.beats[index] / 0.5);
+      assert.equal((beat - 8) % 32, 0, `phrase start on beat ${beat}`);
+    }
+  });
+
+  it('is unsure about a loop with no sections', () => {
+    const result = analyse(sectionTrack(false));
+    assert.ok((result.phrases?.confidence ?? 0) < 0.3, `confidence ${result.phrases?.confidence.toFixed(2)}`);
+  });
+});
+
 describe('key', () => {
   const progression = (chords: number[][], seconds = 2) => {
     const audio = new Float32Array(SR * chords.length * seconds * 2);

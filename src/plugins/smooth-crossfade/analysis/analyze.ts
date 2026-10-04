@@ -1,5 +1,6 @@
 import { frameTime, type Features } from './features';
 import { estimateKey, type KeyEstimate } from './key';
+import { findPhrases, type Phrases } from './phrases';
 import {
   estimateTempo,
   findDownbeats,
@@ -12,6 +13,7 @@ import {
 
 export { extractFeatures, FeatureExtractor, type Features } from './features';
 export { camelotOf, keysCompatible, type KeyEstimate } from './key';
+export { type Phrases } from './phrases';
 export { fitGrid, type Downbeats, type Grid } from './rhythm';
 
 /** Audio this far below the song's median loudness counts as silence. */
@@ -30,6 +32,8 @@ export type TrackAnalysis = {
   /** Median residual (ms) of 16-beat grids: low for steady, programmed tempo. */
   localResidualMs: number;
   downbeats: Downbeats | null;
+  /** Where 8-bar phrases start, when the song's sections are clear enough. */
+  phrases: Phrases | null;
   /** 0–1: how safe it is to beat-match this track. */
   beatConfidence: number;
   /** The factors multiplied into `beatConfidence`, for debugging. */
@@ -109,6 +113,7 @@ export const analyzeFeatures = (features: Features): TrackAnalysis => {
       grid: null,
       localResidualMs: Infinity,
       downbeats: null,
+      phrases: null,
       beatConfidence: 0,
       confidenceParts: {},
       key,
@@ -120,6 +125,7 @@ export const analyzeFeatures = (features: Features): TrackAnalysis => {
   const grid = fitGrid(beats);
   const localResidualMs = localResidual(beats);
   const downbeats = findDownbeats(features, beats);
+  const phrases = findPhrases(features, beats, downbeats?.meter ?? 4);
 
   const soundSpan = Math.max(1e-6, loudness.lastSound - loudness.firstSound);
   const beatSpan = beats.length > 1 ? beats.at(-1)! - beats[0] : 0;
@@ -170,6 +176,7 @@ export const analyzeFeatures = (features: Features): TrackAnalysis => {
     grid,
     localResidualMs,
     downbeats,
+    phrases,
     beatConfidence: Object.values(confidenceParts).reduce((a, b) => a * b, 1),
     confidenceParts,
     key,

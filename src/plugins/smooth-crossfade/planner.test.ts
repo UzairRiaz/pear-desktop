@@ -17,6 +17,7 @@ const track = (
   grid: { period: 60 / bpm, origin: 0, residualMs: 3, count: 100 },
   localResidualMs: 3,
   downbeats: null,
+  phrases: null,
   beatConfidence,
   confidenceParts: {},
   key: {
